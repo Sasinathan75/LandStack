@@ -32,44 +32,49 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+export const app = express();
+const server = createServer(app);
+
+// Apply baseline security headers & sensitive API cache control (Prompt 18)
+app.use(securityHeadersMiddleware);
+// Configure body parser with larger size limit for file uploads
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
+registerStorageProxy(app);
+registerOAuthRoutes(app);
+
+// Database + PostGIS health endpoint (Prompt 11)
+app.get("/api/health", async (_req, res) => {
+  try {
+    const report = await getDatabaseHealth();
+    const status = report.healthy
+      ? "ok"
+      : report.configured
+        ? "degraded"
+        : "not_configured";
+    // A missing DATABASE_URL keeps the demo API alive (200); a configured but
+    // failing database is reported as 503 so orchestrators can act on it.
+    res
+      .status(report.configured && !report.healthy ? 503 : 200)
+      .json({ status, ...report });
+  } catch (error) {
+    res.status(500).json({ status: "error", error: sanitizeDatabaseError(error) });
+  }
+});
+
+// tRPC API
+app.use(
+  "/api/trpc",
+  createExpressMiddleware({
+    router: appRouter,
+    createContext,
+  })
+);
+
+// Protected LandSphere REST API routes (Prompt 12)
+app.use(apiRouter);
+
 async function startServer() {
-  const app = express();
-  const server = createServer(app);
-  // Apply baseline security headers & sensitive API cache control (Prompt 18)
-  app.use(securityHeadersMiddleware);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  registerStorageProxy(app);
-  registerOAuthRoutes(app);
-  // Database + PostGIS health endpoint (Prompt 11)
-  app.get("/api/health", async (_req, res) => {
-    try {
-      const report = await getDatabaseHealth();
-      const status = report.healthy
-        ? "ok"
-        : report.configured
-          ? "degraded"
-          : "not_configured";
-      // A missing DATABASE_URL keeps the demo API alive (200); a configured but
-      // failing database is reported as 503 so orchestrators can act on it.
-      res
-        .status(report.configured && !report.healthy ? 503 : 200)
-        .json({ status, ...report });
-    } catch (error) {
-      res.status(500).json({ status: "error", error: sanitizeDatabaseError(error) });
-    }
-  });
-  // tRPC API
-  app.use(
-    "/api/trpc",
-    createExpressMiddleware({
-      router: appRouter,
-      createContext,
-    })
-  );
-  // Protected LandSphere REST API routes (Prompt 12)
-  app.use(apiRouter);
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
@@ -104,4 +109,13 @@ async function startServer() {
   });
 }
 
-startServer().catch(console.error);
+// Only start the server if this script is executed directly (not imported)
+// Also don't start it if we are inside Vercel environment (process.env.VERCEL)
+if (process.env.NODE_ENV !== "test" && !process.env.VERCEL) {
+  // Using import.meta.url check for ES modules
+  const isMainModule = import.meta.url.startsWith('file:') && process.argv[1] && import.meta.url.includes(process.argv[1].replace(/\\/g, '/'));
+  if (isMainModule || !process.argv[1]) {
+    startServer().catch(console.error);
+  }
+}
+
