@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790059780568,
+      "tag": "0000_awesome_the_phantom",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790093090528,
+      "tag": "0001_prompt11_postgres_postgis_foundation",
+      "breakpoints": true
+    }
+  ]
+}
